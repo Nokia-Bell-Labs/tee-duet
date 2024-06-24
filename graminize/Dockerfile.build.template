@@ -1,0 +1,97 @@
+# © 2024 Nokia
+# Licensed under the BSD 3-Clause Clear License
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+
+FROM {{gramine_image}}:latest AS gramine
+
+FROM {{base_image}}:latest AS manifest_image
+
+ENV app_user={{app_user}}
+
+# Switch to root user to install packages
+USER root
+
+RUN mkdir -p /gramine \
+    && chown ${app_user} /gramine
+
+# Combine all installation and removal steps in a single RUN command to reduce the final image size.
+# This is because each Dockerfile command creates a new layer which necessarily adds size to the
+# final image. This trick allows to decrease the image size by hundreds of MBs.
+RUN apt-get update \
+    && env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        binutils \
+#        expect \
+        libcurl4-openssl-dev \
+        libprotobuf-c-dev \
+        locales \
+        openssl \
+#        python3 \
+#        python3-cryptography \
+#        python3-pip \
+        python3-distutils \
+        python3-protobuf \
+        python3-pyelftools
+#    && /usr/bin/python3 -B -m pip install click jinja2 protobuf \
+#                                          'tomli>=1.1.0' 'tomli-w>=0.4.0' \
+# For compatibility with Gramine v1.3 or lower
+#    && /usr/bin/python3 -B -m pip install 'toml>=0.10'
+
+RUN locale-gen en_US.UTF-8
+ENV LC_ALL en_US.UTF-8
+ENV LANG en_US.UTF-8
+ENV LANGUAGE en_US.UTF-8
+
+WORKDIR /tmp
+
+COPY requirements.txt .
+RUN /usr/bin/python3 -m pip install --no-cache-dir -r requirements.txt
+
+COPY gramine.env .env
+COPY --chown=${app_user} finalize-manifest.py finalize-manifest.py
+COPY --chown=${app_user} sign-manifest.sh sign-manifest.sh
+COPY --chown=${app_user} keys/signer-key.pem signer-key.pem
+COPY --chown=${app_user} entrypoint.manifest.template .
+RUN chmod u+x *-manifest.py
+
+RUN echo "arch_libdir=/lib/$(gcc -dumpmachine)" >> /tmp/.env
+RUN echo "entrypoint=$(realpath $(sh -c 'command -v python3'))" >> /tmp/.env
+
+COPY --from=gramine --chown=${app_user} /gramine/meson_build_output /gramine/meson_build_output
+USER ${app_user}
+# Include Meson build output directory in $PATH
+ENV PATH="/gramine/meson_build_output/bin:$PATH"
+
+# make gramine manifest expander happy; keeps complaining that this folder does not exist
+RUN mkdir -p /home/${app_user}/.local/lib/python3.10/site-packages
+
+# Create the final manifest and sign with the RSA key
+RUN export PYTHONPATH="${PYTHONPATH}:$(find /gramine/meson_build_output/lib -type d -path '*/site-packages')" \
+    && ./finalize-manifest.py entrypoint.manifest.template \
+    && ./sign-manifest.sh signer-key.pem entrypoint.manifest entrypoint.manifest.sgx
+
+USER root
+
+WORKDIR /
+
+COPY --chown=${app_user} apploader.sh .
+
+RUN cp /tmp/*.sig .
+RUN cp /tmp/*.sgx .
+
+RUN apt-get clean \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf $HOME/.cache \
+    && rm -rf /tmp/* \
+    && rm -rf /home/${app_user}/.cache
+
+RUN chown ${app_user}:${app_user} -R /home/${app_user}/tmp \
+    && chown ${app_user}:${app_user} -R /home/${app_user}/*Enclave
+
+USER ${app_user}
+RUN chmod u+x apploader.sh
+
+ENTRYPOINT ["/bin/bash"]
+
+CMD ["apploader.sh"]

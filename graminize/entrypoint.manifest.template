@@ -1,0 +1,89 @@
+# © 2024 Nokia
+# Licensed under the BSD 3-Clause Clear License
+# SPDX-License-Identifier: BSD-3-Clause-Clear
+
+loader.entrypoint = "file:{{ gramine.libos }}"
+libos.entrypoint = "{{ entrypoint }}"
+
+loader.log_level = "{{ log_level }}"
+
+loader.env.LD_LIBRARY_PATH = "/lib:{{ arch_libdir }}:/usr/{{ arch_libdir }}"
+loader.env.PYTHONPATH = "$PYTHONPATH:{{ python_path|join(':') }}"
+loader.env.TMPDIR = "/home/duet/tmp"
+
+# Python's NumPy spawns as many threads as there are CPU cores, and each thread
+# consumes a chunk of memory.
+# We limit the number of spawned threads via OMP_NUM_THREADS env variable.
+loader.env.OMP_NUM_THREADS = "8"
+
+# For python the libos.entrypoint is the path to the python command,
+# but we also need to specify the module (and potential arguments to it)
+loader.argv = [
+  "{{ entrypoint }}",
+{% for arg in loader_args %}
+  "{{ arg }}",
+{% endfor %}
+]
+
+sys.enable_sigterm_injection = true
+sys.disallow_subprocesses = false
+
+{% set list1 = python.get_sys_path(entrypoint)|list %}
+{% set list2 = python_path %}
+{% set combined = list1 + list2 %}
+{% set python_path_elements = combined | unique %}
+
+fs.mounts = [
+  { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+  { path = "{{ arch_libdir }}", uri = "file:{{ arch_libdir }}" },
+  { path = "/usr/{{ arch_libdir }}", uri = "file:/usr/{{ arch_libdir }}" },
+  { path = "{{ entrypoint }}", uri = "file:{{ entrypoint }}" },
+  { path = "/home/duet", uri = "file:{{ work_dir }}" },
+  { path = "/etc", uri = "file:/etc"},
+  { path = "/etc/ssl/certs", uri = "file:/etc/ssl/certs"},
+  { path = "/usr/lib/ssl/certs", uri = "file:/usr/lib/ssl/certs"},
+  { type = "tmpfs", path = "/home/duet/tmp" },
+{% for path in python_path_elements %}
+  { path = "{{ path }}", uri = "file:{{ path }}" },
+{% endfor %}
+  { path = "/home/duet/AdminEnclave", uri = "file:/home/duet/AdminEnclave" },
+  { path = "/home/duet/AdminEnclave/service_owner_pub_keys", uri = "file:/home/duet/AdminEnclave/service_owner_pub_keys" },
+  { type = "encrypted", path = "/home/duet/AdminEnclave/sealed", uri = "file:/home/duet/AdminEnclave/sealed", key_name = "_sgx_mrenclave" },
+]
+
+fs.start_dir = "/"
+
+sys.stack.size = "2M"
+sys.enable_extra_runtime_domain_names_conf = true
+
+sgx.debug = false
+sgx.edmm_enable = {{ 'true' if env.get('EDMM', '0') == '1' else 'false' }}
+sgx.enclave_size = "4G"
+sgx.max_threads = 32
+
+sgx.remote_attestation = "{{ ra_type }}"
+sgx.ra_client_spid = "{{ ra_client_spid }}"
+sgx.ra_client_linkable = {{ 'true' if ra_client_linkable == '1' else 'false' }}
+
+sgx.allowed_files = [
+  "file:/home/duet/AdminEnclave/service_owner_pub_keys/service_owner_private_key.pub",
+]
+
+sgx.trusted_files = [
+  "file:{{ gramine.libos }}",
+  "file:{{ entrypoint }}",
+  "file:{{ gramine.runtimedir() }}/",
+  "file:{{ arch_libdir }}/",
+  "file:/usr/{{ arch_libdir }}/",
+  "file:/etc/nsswitch.conf",
+  "file:/etc/ssl/certs/",
+  "file:/usr/lib/ssl/certs/",
+{% set list1 = python.get_sys_path(entrypoint)|list %}
+{% set list2 = python_path %}
+{% set combined = list1 + list2 %}
+{% set python_path_elements = combined | unique %}
+{% for path in python_path_elements %}
+  "file:{{ path }}/",
+{% endfor %}
+  "file:{{ work_dir }}/",
+]
