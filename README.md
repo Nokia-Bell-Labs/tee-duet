@@ -113,7 +113,7 @@ As a result, the controller fails performing some provisioning operations for th
 Please retry the commands from the client side.
 
 2. When there is an error at the client, the reason usually is an error not propagated from the server. 
-To see what went wrong, one can use `docker logs duetadmin-enclave`.
+To see what went wrong, one can get the server logs via `docker logs duetadmin-enclave`, which usually contain the error message from Azure.
 
 ## Run direct mode
 
