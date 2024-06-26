@@ -18,7 +18,7 @@ In this project, we combine two Trusted Execution Environments (TEEs) to work to
 
 - `install_vm_dependencies.sh` is the script that sets up the SGX VM with the necessary software (e.g., SGX libraries, docker, python packages).
 
-- `docker.mk` defines a function for building of container images.
+- `docker.mk` defines a function for building container images.
 
 ## Pre-requisites
 
@@ -95,6 +95,9 @@ First make sure that the requirements are installed:
 cd AdminEnclaveClient
 python3 -m pip install -r requirements.txt
 ```
+
+Then you can run the example end-to-end test script using the interface as a service owner.
+
 ```
 ./test_end_to_end.sh
 ```
